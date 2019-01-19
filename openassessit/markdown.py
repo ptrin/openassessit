@@ -8,6 +8,7 @@ import json
 import sys
 import re
 import logging
+import markdown2
 from utils import generate_img_filename
 from utils import initialize_logger
 from templates import template_path
@@ -52,6 +53,7 @@ def get_args():
                         help='Provide filepath to custom user templates')
     parser.add_argument('-e', action='store_true', default=False,
                         help='Echo the output to stdout, even when using the -o option')
+    parser.add_argument('--html', help='Convert markdown to HTML', action='store_true', default=False)
     return parser.parse_args()
 
 
@@ -114,7 +116,7 @@ def read_input(input_file):
 
 
 def write_output(output_file, rendered, force_stdout=False):
-    """ Write Markdown file """
+    """ Write output file (Markdown or HTML)"""
     if output_file:
         with io.open(output_file, 'w', encoding='utf-8') as stream:
             stream.write(rendered)
@@ -128,6 +130,7 @@ def main():
     args = get_args()
     input_file = args.input_file
     output_file = args.output_file
+    convert_to_html = args.html
     output_dir = os.path.dirname(args.input_file)
     paths = list()
     if args.user_template_path:
@@ -140,15 +143,28 @@ def main():
     env = jinja2.Environment(loader=loader)
 
     template = loader.load(env, 'index.md')
+    header = loader.load(env, 'header.html')
+    footer = loader.load(env, 'footer.html')
+
+    data = preprocess_data(read_input(input_file))
 
     rendered = template.render({
-        'data': preprocess_data(read_input(input_file)),
+        'data': data,
         'generate_img_filename': generate_img_filename,
     })
 
-    write_output(args.output_file, rendered, force_stdout=args.e or not output_file)
+    if convert_to_html:
+        html = markdown2.markdown(rendered,extras={"fenced-code-blocks": None, "toc": {"depth": 2}})
+        toc_html = html.toc_html
+        TOC_MARKER = '<!--TOC-->'
+        html = html.replace(TOC_MARKER, toc_html)
+        output = "".join([header.render({'data': data}), html, footer.render()])
+    else:
+        output = rendered
+
+    write_output(args.output_file, output, force_stdout=args.e or not output_file)
     initialize_logger('markdown', output_dir)
-    logging.info('Markdown convertion complete in: ' + args.output_file)
+    logging.info('Markdown/HTML conversion complete in: ' + args.output_file)
 
 
 if __name__ == '__main__':
